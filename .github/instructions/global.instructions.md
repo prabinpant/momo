@@ -1,5 +1,5 @@
 ---
-applyTo: "**"
+applyTo: '**'
 ---
 
 # MOMO: Virtual-Unlimited-Memory AI Agent
@@ -42,7 +42,7 @@ memory = external store + retrieval + compaction + intelligence
 ```typescript
 interface Memory {
   id: string; // UUID
-  type: "fact" | "decision" | "preference" | "observation";
+  type: 'fact' | 'decision' | 'preference' | 'observation';
   content: string; // Natural language
   embedding: number[]; // 768-dim vector (Gemini)
   metadata: {
@@ -56,13 +56,74 @@ interface Memory {
 }
 ```
 
-#### C. Summary Memory
+#### C. Summary Memory (Chunked)
 
 - **Purpose**: Compressed historical context
-- **Storage**: SQLite (separate table)
+- **Storage**: SQLite (chunked into focused pieces)
 - **Generation**: Triggered when LTM > threshold
-- **Content**: Time-windowed summaries (daily, weekly, monthly)
-- **Compression Ratio**: Target 10:1 (raw memories → summary)
+- **Content**: Time-windowed summaries, **chunked before embedding**
+- **Chunking Strategy**:
+  - **Chunk size**: ~400 tokens (~1600 characters)
+  - **Overlap**: 80 tokens (~320 characters, 20%)
+  - **Why?** Prevents embedding dilution, focused semantics per chunk
+- **Compression Ratio**: Target 10:1 (raw memories → summary chunks)
+
+**Chunking Process** (inspired by Clawdbot):
+
+1. Generate summary text from old memories
+2. Split into overlapping chunks (~400 tokens each)
+3. Embed each chunk separately (focused embeddings!)
+4. Store chunks with line ranges for retrieval
+5. Vector search retrieves relevant chunks only
+
+---
+
+## 1.2 Chunking Strategy (Critical for Accuracy)
+
+### Why Chunk?
+
+**Problem**: Long summaries with mixed topics create diluted embeddings
+
+```typescript
+// ❌ BAD: Single embedding for mixed content
+const summary = 'User is a Python developer. Loves pizza. Traveled to Japan.';
+const embedding = await embed(summary);
+// → [0.345, -0.234, ...] (33% programming, 33% food, 33% travel - DILUTED!)
+
+Query: 'What programming languages?';
+similarity(query, embedding) = 0.67; // Low due to dilution
+```
+
+**Solution**: Chunk before embedding
+
+```typescript
+// ✅ GOOD: Focused embeddings per chunk
+const chunk1 = "User is a Python developer with 5 years experience...";
+const chunk2 = "User loves pizza and Italian cuisine...";
+const chunk3 = "User traveled to Japan and loved Kyoto...";
+
+const emb1 = await embed(chunk1); // 100% programming semantics
+const emb2 = await embed(chunk2); // 100% food semantics
+const emb3 = await embed(chunk3); // 100% travel semantics
+
+Query: "What programming languages?"
+similarity(query, emb1) = 0.94 ✅ High!
+similarity(query, emb2) = 0.21 (filtered out)
+```
+
+### Chunking Implementation
+
+```typescript
+interface ChunkOptions {
+  maxChars: number; // ~400 tokens = 1600 chars
+  overlapChars: number; // ~80 tokens = 320 chars (20% overlap)
+}
+
+// Overlap ensures context continuity:
+// Chunk 1: "...Decision: use REST for simplicity."
+// Chunk 2: "Decision: use REST for simplicity. Deployed to prod..."
+//           ↑ Shared content preserves context
+```
 
 ---
 
@@ -96,7 +157,7 @@ async function processUserInput(input: string): Promise<string> {
   // STEP 5: Extract Memory Candidates
   const memoryExtractionPrompt = buildMemoryExtractionPrompt(
     userMessage,
-    response,
+    response
   );
   const memories = await gemini.generate(memoryExtractionPrompt);
 
@@ -113,8 +174,8 @@ async function processUserInput(input: string): Promise<string> {
   }
 
   // STEP 8: Update STM
-  addToSTM({ role: "user", content: userMessage });
-  addToSTM({ role: "assistant", content: response });
+  addToSTM({ role: 'user', content: userMessage });
+  addToSTM({ role: 'assistant', content: response });
 
   return response;
 }
@@ -190,6 +251,52 @@ EXAMPLES:
 ❌ BAD: "We talked about deadlines"
 ```
 
+### 3.3 Summarization Prompt (with Chunking)
+
+```
+Summarize the following memories into a concise overview.
+
+MEMORIES TO SUMMARIZE (30 old memories):
+1. User prefers Python for data science
+2. User's project deadline is March 15, 2026
+3. User chose PostgreSQL over MySQL
+... (27 more)
+
+SUMMARIZATION RULES:
+1. Organize by topic/theme (programming, preferences, work, etc.)
+2. Preserve all critical facts, dates, and decisions
+3. Remove redundant information
+4. Use clear, atomic statements
+5. Target ~500-800 words
+
+OUTPUT:
+A well-organized summary that will be chunked for embedding.
+Ensure natural topic transitions for effective chunking.
+```
+
+**Post-Processing:**
+
+```typescript
+const summary = await generateText(summarizationPrompt);
+
+// Chunk the summary (400 tokens with 80 token overlap)
+const chunks = chunkText(summary, {
+  maxChars: 1600,
+  overlapChars: 320,
+});
+
+// Embed each chunk separately
+for (const chunk of chunks) {
+  const embedding = await generateEmbedding(chunk.text);
+  await saveSummaryChunk({
+    content: chunk.text,
+    embedding,
+    startLine: chunk.startLine,
+    endLine: chunk.endLine,
+  });
+}
+```
+
 ---
 
 ## 4. Code Quality Standards
@@ -214,7 +321,7 @@ async function embedText(text: string): Promise<Result<number[]>> {
     const embedding = await gemini.embed(text);
     return { ok: true, value: embedding };
   } catch (error) {
-    return { ok: false, error: new Error("Embedding failed") };
+    return { ok: false, error: new Error('Embedding failed') };
   }
 }
 ```
@@ -223,7 +330,7 @@ async function embedText(text: string): Promise<Result<number[]>> {
 
 ```typescript
 // Use structured logging
-logger.info("Memory retrieved", {
+logger.info('Memory retrieved', {
   queryEmbeddingTime: 45,
   resultsCount: 10,
   topRelevance: 0.89,
@@ -231,8 +338,8 @@ logger.info("Memory retrieved", {
 });
 
 // Never log sensitive data
-logger.debug("User input received", { length: input.length }); // ✅
-logger.debug("User input", { input }); // ❌
+logger.debug('User input received', { length: input.length }); // ✅
+logger.debug('User input', { input }); // ❌
 ```
 
 ### 4.4 File Structure
@@ -296,20 +403,20 @@ momo/
 ### 6.2 Integration Tests
 
 ```typescript
-describe("Agent Memory System", () => {
-  it("should remember facts across restarts", async () => {
-    await agent.process("My name is Alice");
+describe('Agent Memory System', () => {
+  it('should remember facts across restarts', async () => {
+    await agent.process('My name is Alice');
     await agent.restart();
-    const response = await agent.process("What is my name?");
-    expect(response).toContain("Alice");
+    const response = await agent.process('What is my name?');
+    expect(response).toContain('Alice');
   });
 
-  it("should retrieve only relevant memories", async () => {
-    await agent.process("I love pizza");
-    await agent.process("I hate rain");
-    const memories = await agent.retrieveMemories("food preferences");
-    expect(memories).toContainEqual({ content: "I love pizza" });
-    expect(memories).not.toContainEqual({ content: "I hate rain" });
+  it('should retrieve only relevant memories', async () => {
+    await agent.process('I love pizza');
+    await agent.process('I hate rain');
+    const memories = await agent.retrieveMemories('food preferences');
+    expect(memories).toContainEqual({ content: 'I love pizza' });
+    expect(memories).not.toContainEqual({ content: 'I hate rain' });
   });
 });
 ```
@@ -320,28 +427,34 @@ describe("Agent Memory System", () => {
 
 ### Phase 1: Foundation
 
-- [ ] Initialize TypeScript project
-- [ ] Setup Gemini API client
-- [ ] Create SQLite schema
-- [ ] Implement basic vector similarity
+- [x] Initialize TypeScript project
+- [x] Setup Gemini API client
+- [x] Create SQLite schema
+- [x] Implement basic vector similarity
 
 ### Phase 2: Core Loop
 
-- [ ] Build agent execution pipeline
-- [ ] Implement memory retrieval
+- [x] Build memory storage layer
+- [ ] Implement chunking strategy (Clawdbot-inspired)
+- [ ] Build memory retrieval with chunked search
 - [ ] Create prompt construction
 - [ ] Connect Gemini reasoning
+- [ ] Build agent execution pipeline
+
+### Phase 3: Intelligence
+
+- [ ] Memory extraction logic
 
 ### Phase 3: Intelligence
 
 - [ ] Memory extraction logic
 - [ ] Noise filtering rules
 - [ ] Relevance scoring
-- [ ] Summarization engine
+- [ ] Summarization engine with chunking
 
 ### Phase 4: Scale & Polish
 
-- [ ] Memory maintenance
+- [ ] Memory maintenance (decay, pruning)
 - [ ] CLI interface
 - [ ] Logging & debugging
 - [ ] Performance optimization
@@ -354,11 +467,12 @@ describe("Agent Memory System", () => {
 
 1. ✅ Agent remembers facts across process restarts
 2. ✅ Retrieval returns relevant context (not random)
-3. ✅ Prompt size stays < 8KB regardless of memory size
-4. ✅ Old memories are compressed into summaries
-5. ✅ Memory improves answer quality (measurable)
-6. ✅ No crashes with 1000+ memories
-7. ✅ Maintenance runs without blocking UX
+3. ✅ Chunked summaries prevent embedding dilution
+4. ✅ Prompt size stays < 8KB regardless of memory size
+5. ✅ Old memories are compressed into chunked summaries
+6. ✅ Memory improves answer quality (measurable)
+7. ✅ No crashes with 1000+ memories
+8. ✅ Maintenance runs without blocking UX
 
 ---
 
@@ -426,11 +540,18 @@ LOG_FILE=./logs/momo.log
 
 ## 12. References
 
-- **Manthan Gupta / OpenClaw**: Memory ≠ Context
+- **[Clawdbot](https://github.com/clawdbot/clawdbot)**: Chunking strategy, memory architecture inspiration
+- **[Manthan Gupta's Article](https://x.com/manthanguptaa/status/2015780646770323543)**: How Clawdbot Remembers Everything
 - **Vector Similarity**: Cosine similarity for embeddings
-- **SQLite**: Persistent storage with vector extension
+- **SQLite**: Persistent storage with vector operations
 - **Gemini API**: Text generation + embeddings
 - **Result Types**: Railway-oriented programming
+
+---
+
+**Last Updated**: February 6, 2026
+**Version**: 1.1.0
+**Status**: Implementation In Progress (Chunking Strategy Added)
 
 ---
 

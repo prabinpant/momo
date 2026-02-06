@@ -36,10 +36,34 @@ The LLM (Gemini) is stateless. All memory is external, selective, and retrieved 
    - Persisted to SQLite with vector embeddings
    - Retrieved via semantic similarity
 
-3. **Summary Memory**
+3. **Summary Memory (Chunked)**
    - Compressed historical context
    - Generated periodically to prevent memory explosion
+   - **Chunked before embedding** (400 tokens, 80 token overlap)
+   - Each chunk gets focused embedding for accurate retrieval
    - 10:1 compression ratio target
+
+### Chunking Strategy
+
+Inspired by [Clawdbot](https://github.com/clawdbot/clawdbot), MOMO uses chunking to prevent embedding dilution:
+
+```typescript
+// Problem: Mixed-topic content creates diluted embeddings
+"User is a Python developer. Loves pizza. Traveled to Japan."
+→ Single embedding (33% each topic) → Lower accuracy
+
+// Solution: Chunk before embedding
+Chunk 1: "User is a Python developer..."  → Programming-focused
+Chunk 2: "Loves pizza and pasta..."       → Food-focused
+Chunk 3: "Traveled to Japan..."           → Travel-focused
+→ Each chunk = focused embedding → Higher accuracy
+```
+
+**Benefits:**
+
+- Prevents semantic dilution in embeddings
+- Each chunk retrieves only relevant content
+- 20% overlap preserves context across boundaries
 
 ### Agent Execution Loop
 
@@ -47,11 +71,13 @@ Every interaction follows this pipeline:
 
 1. **Receive Input** - User message/task
 2. **Retrieve Memory** - Vector search for relevant context
-3. **Construct Prompt** - Inject retrieved memories + summaries
+3. **Construct Prompt** - Inject retrieved memories + summaries (chunked)
 4. **LLM Reasoning** - Gemini generates response
 5. **Extract Memories** - Decide what's worth remembering
 6. **Persist** - Store to LTM with embeddings
-7. **Maintenance** - Summarize, decay, prune (conditional)
+7. **Maintenance** - Summarize (with chunking), decay, prune (conditional)
+
+**Key Innovation:** Summaries are chunked before embedding, ensuring each chunk has focused semantics for accurate retrieval.
 
 ## 🛠️ Tech Stack
 
@@ -59,15 +85,17 @@ Every interaction follows this pipeline:
 - **LLM**: Gemini API (text generation + embeddings)
 - **Database**: SQLite with vector similarity
 - **Architecture**: Result types, strict typing, structured logging
+- **Memory Strategy**: Chunked embeddings (inspired by Clawdbot)
 
 ## ✨ Key Features
 
 - ✅ **Cross-Session Recall** - Restart the agent, it still remembers
 - ✅ **Relevant Retrieval** - Only injects contextually relevant memories
+- ✅ **Chunked Embeddings** - Prevents semantic dilution for accurate search
 - ✅ **Bounded Prompts** - Never exceeds 8KB regardless of memory size
 - ✅ **Intelligent Filtering** - Ignores trivial information automatically
 - ✅ **Memory Decay** - Old, unused memories fade over time
-- ✅ **Automatic Summarization** - Compresses old memories periodically
+- ✅ **Automatic Summarization** - Compresses old memories with chunking
 
 ## 🎯 Success Criteria
 
