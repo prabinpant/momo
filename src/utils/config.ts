@@ -22,7 +22,7 @@ export function loadConfig(): Config {
       dbPath: process.env.MEMORY_DB_PATH || './db/memory.db',
       topK: parseInt(process.env.MEMORY_TOP_K || '10', 10),
       relevanceThreshold: parseFloat(
-        process.env.MEMORY_RELEVANCE_THRESHOLD || '0.60'
+        process.env.MEMORY_RELEVANCE_THRESHOLD || '0.50'
       ),
       decayRate: parseFloat(process.env.MEMORY_DECAY_RATE || '0.05'),
       summaryThreshold: parseInt(

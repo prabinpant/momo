@@ -4,6 +4,11 @@
 
 import { generateEmbedding } from '../services/gemini.js';
 import { findTopSimilar } from '../utils/vector.js';
+import {
+  extractKeywords,
+  calculateKeywordScore,
+  calculateHybridScore,
+} from '../utils/keywords.js';
 import { getConfig, getLogger } from '../utils/index.js';
 import { getAllMemories, getAllSummaryChunks } from './memory.js';
 import {
@@ -15,6 +20,52 @@ import {
 } from '../types/index.js';
 
 const logger = getLogger();
+
+/**
+ * Preprocess query to extract semantic core for better embedding
+ * Removes greetings, filler words, and focuses on the actual intent
+ */
+function preprocessQuery(query: string): string {
+  // Remove common conversational prefixes that dilute embeddings
+  const patterns = [
+    /^(hello|hi|hey|greetings?)[,\s]+/i,
+    /^(do you|can you|could you|would you)[\s]+/i,
+    /^(please)[\s]+/i,
+    /^(i want to|i need to|i would like to)[\s]+/i,
+  ];
+
+  let processed = query;
+  for (const pattern of patterns) {
+    processed = processed.replace(pattern, '');
+  }
+
+  // Convert questions to statements for better matching
+  // "do you have my name?" -> "my name"
+  // "what is my name?" -> "my name"
+  const questionPatterns = [
+    { pattern: /do you (have|know|remember)\s+(.+?)\?/i, replace: '$2' },
+    { pattern: /what is\s+(.+?)\?/i, replace: '$1' },
+    { pattern: /what's\s+(.+?)\?/i, replace: '$1' },
+    { pattern: /where is\s+(.+?)\?/i, replace: '$1' },
+    { pattern: /when is\s+(.+?)\?/i, replace: '$1' },
+  ];
+
+  for (const { pattern, replace } of questionPatterns) {
+    const match = processed.match(pattern);
+    if (match) {
+      processed = processed.replace(pattern, replace);
+      break;
+    }
+  }
+
+  const trimmed = processed.trim();
+  console.log(
+    `🔄 [QUERY PREPROCESSING] Original: "${query}" → Focused: "${trimmed}"`
+  );
+
+  // Return original if preprocessing made it too short
+  return trimmed.length >= 3 ? trimmed : query;
+}
 
 /**
  * Retrieved context from memory search
@@ -55,13 +106,20 @@ export async function retrieveContext(
       minRelevance,
     });
 
-    // Step 1: Generate query embedding
-    const embeddingResult = await generateEmbedding(query);
+    // Step 0.5: Preprocess query to extract semantic core
+    const focusedQuery = preprocessQuery(query);
+
+    // Step 1: Generate query embedding (use focused query for better matching)
+    const embeddingResult = await generateEmbedding(focusedQuery);
     if (!embeddingResult.ok) {
       return failure(embeddingResult.error);
     }
 
     const queryEmbedding = embeddingResult.value;
+
+    // Step 1.5: Extract keywords for hybrid search
+    const queryKeywords = extractKeywords(query);
+    console.log(`🔑 [KEYWORDS] Extracted: ${queryKeywords.join(', ')}`);
 
     // Step 2: Load all memories
     const memoriesResult = await getAllMemories();
@@ -106,6 +164,34 @@ export async function retrieveContext(
       );
     });
 
+    // Step 4.5: Apply hybrid scoring (combine vector + keyword)
+    console.log('🔗 [RETRIEVAL] Applying hybrid scoring (vector + keyword)...');
+    const hybridResults = memoryResults.map((result) => {
+      const memory = result.data as Memory;
+      const keywordScore = calculateKeywordScore(queryKeywords, memory.content);
+      const hybridScore = calculateHybridScore(
+        result.similarity,
+        keywordScore,
+        0.7 // 70% vector, 30% keyword
+      );
+
+      return {
+        ...result,
+        keywordScore,
+        hybridScore,
+      };
+    });
+
+    // Re-sort by hybrid score
+    hybridResults.sort((a, b) => b.hybridScore - a.hybridScore);
+
+    console.log('   Top 5 after hybrid scoring:');
+    hybridResults.slice(0, 5).forEach((r, i) => {
+      console.log(
+        `      ${i + 1}. [V:${r.similarity.toFixed(3)} K:${r.keywordScore.toFixed(3)} H:${r.hybridScore.toFixed(3)}] ${(r.data as Memory).content.substring(0, 50)}...`
+      );
+    });
+
     // Step 5: Vector search on summary chunks
     const chunkResults =
       allChunks.length > 0
@@ -122,11 +208,11 @@ export async function retrieveContext(
 
     // Step 6: Filter by relevance threshold
     console.log(`🎯 [RETRIEVAL] Filtering by threshold: ${minRelevance}`);
-    const relevantMemories = memoryResults
-      .filter((r) => r.similarity >= minRelevance)
+    const relevantMemories = hybridResults
+      .filter((r) => r.hybridScore >= minRelevance)
       .map((r) => ({
         memory: r.data as Memory,
-        similarity: r.similarity,
+        similarity: r.hybridScore,
       }));
 
     const relevantChunks = chunkResults

@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { query, execute, queryOne } from '../services/storage.js';
 import { generateEmbedding } from '../services/gemini.js';
+import { cosineSimilarity } from '../utils/vector.js';
 import { getLogger, chunkText, DEFAULT_CHUNK_OPTIONS } from '../utils/index.js';
 import {
   Memory,
@@ -16,7 +17,61 @@ import {
 const logger = getLogger();
 
 /**
- * Save a new memory to the database
+ * Check if a similar memory already exists
+ *
+ * @param content - Content to check
+ * @param embedding - Embedding of the content
+ * @param similarityThreshold - Threshold for considering memories similar (default: 0.90)
+ * @returns Result with boolean indicating if duplicate exists
+ */
+export async function isDuplicateMemory(
+  content: string,
+  embedding: number[],
+  similarityThreshold: number = 0.9
+): Promise<Result<boolean, Error>> {
+  try {
+    // Get all existing memories
+    const memoriesResult = await getAllMemories();
+    if (!memoriesResult.ok) {
+      return failure(memoriesResult.error);
+    }
+
+    const existingMemories = memoriesResult.value;
+
+    // Check for near-duplicate content (exact or very similar)
+    for (const existing of existingMemories) {
+      // Exact text match
+      if (
+        existing.content.toLowerCase().trim() === content.toLowerCase().trim()
+      ) {
+        logger.debug('Duplicate memory found (exact text match)', {
+          content: content.substring(0, 50),
+        });
+        return success(true);
+      }
+
+      // Semantic similarity check
+      const similarity = cosineSimilarity(embedding, existing.embedding);
+      if (similarity >= similarityThreshold) {
+        logger.debug('Duplicate memory found (semantic similarity)', {
+          content: content.substring(0, 50),
+          existingContent: existing.content.substring(0, 50),
+          similarity,
+        });
+        return success(true);
+      }
+    }
+
+    return success(false);
+  } catch (error) {
+    return failure(
+      error instanceof Error ? error : new Error('Failed to check duplicate')
+    );
+  }
+}
+
+/**
+ * Save a memory to the database (with deduplication)
  */
 export async function saveMemory(
   candidate: MemoryCandidate,
@@ -27,6 +82,24 @@ export async function saveMemory(
     const embeddingResult = await generateEmbedding(candidate.content);
     if (!embeddingResult.ok) {
       return failure(embeddingResult.error);
+    }
+
+    // Check for duplicates before saving (0.90 similarity threshold)
+    const isDuplicateResult = await isDuplicateMemory(
+      candidate.content,
+      embeddingResult.value,
+      0.90
+    );
+
+    if (isDuplicateResult.ok && isDuplicateResult.value) {
+      console.log(
+        `⏭️  [MEMORY] Skipping duplicate: "${candidate.content.substring(0, 60)}..."`
+      );
+      logger.info('Duplicate memory skipped', {
+        content: candidate.content.substring(0, 50),
+      });
+      // Return a fake memory to indicate it was skipped (not an error)
+      return failure(new Error('Duplicate memory'));
     }
 
     const now = Date.now();
@@ -73,6 +146,9 @@ export async function saveMemory(
       return failure(result.error);
     }
 
+    console.log(
+      `💾 [MEMORY] Saved [${memory.type}]: "${memory.content.substring(0, 60)}..."`
+    );
     logger.info('Memory saved', {
       id: memory.id,
       type: memory.type,

@@ -262,21 +262,38 @@ async function extractMemories(
     // Filter out low-confidence memories
     const filtered = memories.filter((m) => (m.confidence || 0) >= 0.7);
 
-    // Save extracted memories
+    // Save extracted memories (with deduplication)
+    let savedCount = 0;
+    let duplicateCount = 0;
+    
     for (const memory of filtered) {
       const saveResult = await saveMemory(memory);
       if (!saveResult.ok) {
-        logger.warn('Failed to save extracted memory', {
-          content: memory.content.substring(0, 50),
-          error: saveResult.error.message,
-        });
+        // Check if it's a duplicate (not a real error)
+        if (saveResult.error.message === 'Duplicate memory') {
+          duplicateCount++;
+        } else {
+          logger.warn('Failed to save extracted memory', {
+            content: memory.content.substring(0, 50),
+            error: saveResult.error.message,
+          });
+        }
+      } else {
+        savedCount++;
       }
     }
 
-    logger.debug('Memories saved', {
+    if (duplicateCount > 0) {
+      console.log(
+        `⏭️  [MEMORY] Skipped ${duplicateCount} duplicate(s), saved ${savedCount} new`
+      );
+    }
+    
+    logger.debug('Memories processed', {
       extracted: memories.length,
       filtered: filtered.length,
-      saved: filtered.length,
+      saved: savedCount,
+      duplicates: duplicateCount,
       reasoning: parsed.reasoning,
     });
 
