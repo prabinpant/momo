@@ -85,6 +85,7 @@ export async function retrieveContext(
     });
 
     // Step 4: Vector search on memories
+    console.log('🔍 [RETRIEVAL] Searching memories by similarity...');
     const memoryResults =
       allMemories.length > 0
         ? findTopSimilar(
@@ -97,6 +98,13 @@ export async function retrieveContext(
             memoryTopK
           )
         : [];
+
+    console.log(`   Found ${memoryResults.length} candidate memories:`);
+    memoryResults.forEach((r, i) => {
+      console.log(
+        `      ${i + 1}. [${r.similarity.toFixed(3)}] ${(r.data as Memory).content.substring(0, 70)}...`
+      );
+    });
 
     // Step 5: Vector search on summary chunks
     const chunkResults =
@@ -113,6 +121,7 @@ export async function retrieveContext(
         : [];
 
     // Step 6: Filter by relevance threshold
+    console.log(`🎯 [RETRIEVAL] Filtering by threshold: ${minRelevance}`);
     const relevantMemories = memoryResults
       .filter((r) => r.similarity >= minRelevance)
       .map((r) => ({
@@ -126,6 +135,17 @@ export async function retrieveContext(
         chunk: r.data as SummaryChunk,
         similarity: r.similarity,
       }));
+
+    console.log(`✅ [RETRIEVAL] After filtering:`);
+    console.log(`   Relevant memories: ${relevantMemories.length}`);
+    if (relevantMemories.length > 0) {
+      relevantMemories.slice(0, 3).forEach((m, i) => {
+        console.log(
+          `      ${i + 1}. [${m.similarity.toFixed(3)}] ${m.memory.content.substring(0, 50)}...`
+        );
+      });
+    }
+    console.log(`   Relevant chunks: ${relevantChunks.length}`);
 
     logger.info('Context retrieved', {
       memoriesFound: relevantMemories.length,

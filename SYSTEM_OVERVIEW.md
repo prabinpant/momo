@@ -365,7 +365,7 @@ npm start
 
 ```bash
 GEMINI_API_KEY=your_key           # Required
-GEMINI_MODEL=gemini-2.0-flash-exp # Optional
+GEMINI_MODEL=gemini-3.0-pro       # Optional
 MEMORY_TOP_K=10                   # Results per query
 MEMORY_RELEVANCE_THRESHOLD=0.65   # Min similarity
 MEMORY_SUMMARY_THRESHOLD=100      # Trigger summarization

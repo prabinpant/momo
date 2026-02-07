@@ -529,7 +529,7 @@ describe('Agent Memory System', () => {
 ```bash
 # Gemini API
 GEMINI_API_KEY=your_key_here
-GEMINI_MODEL=gemini-2.0-flash-exp  # or gemini-pro
+GEMINI_MODEL=gemini-3.0-pro
 
 # Memory Settings
 MEMORY_DB_PATH=./db/memory.db

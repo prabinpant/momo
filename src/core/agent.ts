@@ -81,27 +81,43 @@ export async function processInput(
   try {
     const config = getConfig();
 
+    console.log(
+      '\n🔍 [AGENT] Processing user input:',
+      userInput.substring(0, 50) + '...'
+    );
     logger.info('Processing user input', {
       inputLength: userInput.length,
       historyTurns: session.getHistory().length,
     });
 
     // STEP 1: Retrieve relevant context
+    console.log('📚 [RETRIEVAL] Step 1: Retrieving context...');
     logger.debug('Step 1: Retrieving context');
     const contextResult = await retrieveContext(userInput);
 
     if (!contextResult.ok) {
+      console.log('❌ [RETRIEVAL] Failed:', contextResult.error.message);
       return failure(contextResult.error);
     }
 
     const context = contextResult.value;
 
+    console.log(
+      `✅ [RETRIEVAL] Found ${context.memories.length} memories, ${context.summaryChunks.length} chunks`
+    );
+    if (context.memories.length > 0) {
+      console.log(
+        '   Top memory:',
+        context.memories[0].memory.content.substring(0, 60) + '...'
+      );
+    }
     logger.debug('Context retrieved', {
       memories: context.memories.length,
       summaryChunks: context.summaryChunks.length,
     });
 
     // STEP 2: Build prompt with context
+    console.log('📝 [PROMPT] Step 2: Building prompt...');
     logger.debug('Step 2: Building prompt');
     let prompt = buildPrompt({
       userMessage: userInput,
@@ -112,6 +128,7 @@ export async function processInput(
 
     // Check if prompt is too large
     if (isPromptTooLarge(prompt, config.memory.maxPromptTokens)) {
+      console.log('⚠️  [PROMPT] Prompt too large, truncating...');
       logger.warn('Prompt too large, truncating', {
         originalTokens: estimatePromptTokens(prompt),
         maxTokens: config.memory.maxPromptTokens,
@@ -120,6 +137,13 @@ export async function processInput(
     }
 
     const promptTokens = estimatePromptTokens(prompt);
+
+    console.log(`✅ [PROMPT] Built: ${promptTokens} tokens`);
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📋 [PROMPT] Full prompt being sent to LLM:');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(prompt);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
     logger.debug('Prompt built', {
       length: prompt.length,

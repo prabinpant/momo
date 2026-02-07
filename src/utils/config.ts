@@ -16,13 +16,13 @@ export function loadConfig(): Config {
   return {
     gemini: {
       apiKey,
-      model: process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp',
+      model: process.env.GEMINI_MODEL || 'gemini-3.0-pro',
     },
     memory: {
       dbPath: process.env.MEMORY_DB_PATH || './db/memory.db',
       topK: parseInt(process.env.MEMORY_TOP_K || '10', 10),
       relevanceThreshold: parseFloat(
-        process.env.MEMORY_RELEVANCE_THRESHOLD || '0.65'
+        process.env.MEMORY_RELEVANCE_THRESHOLD || '0.60'
       ),
       decayRate: parseFloat(process.env.MEMORY_DECAY_RATE || '0.05'),
       summaryThreshold: parseInt(
