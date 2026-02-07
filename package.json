@@ -10,6 +10,7 @@
     "dev": "tsx src/index.ts",
     "test": "vitest",
     "test:watch": "vitest --watch",
+    "test:manual": "tsc && node dist/test-manual.js",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },
