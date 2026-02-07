@@ -12,6 +12,12 @@ import {
   getAllSummaryChunks,
 } from './core/memory.js';
 import { retrieveContext, searchMemories } from './core/retrieval.js';
+import {
+  buildPrompt,
+  buildMemoryExtractionPrompt,
+  estimatePromptTokens,
+  formatMemories,
+} from './core/prompts.js';
 import { generateText, generateEmbedding } from './services/gemini.js';
 import { cosineSimilarity } from './utils/vector.js';
 import { chunkText } from './utils/chunking.js';
@@ -268,6 +274,84 @@ async function testRetrieval() {
   }
 }
 
+async function testPromptConstruction() {
+  console.log('\n=== TEST 7: Prompt Construction ===');
+
+  // Get some context
+  const contextResult = await retrieveContext(
+    'What does the user do for work?'
+  );
+
+  if (!contextResult.ok) {
+    console.log('❌ Failed to retrieve context');
+    return;
+  }
+
+  // Test 1: Format memories
+  console.log('  Test 1: Format memories for prompt');
+  const formattedMemories = formatMemories(contextResult.value);
+  console.log('  ✅ Formatted memories:');
+  console.log(
+    formattedMemories
+      .split('\n')
+      .slice(0, 5)
+      .map((l) => `     ${l}`)
+      .join('\n')
+  );
+
+  // Test 2: Build complete prompt
+  console.log('\n  Test 2: Build complete prompt');
+  const prompt = buildPrompt({
+    userMessage: 'What programming languages do you know I use?',
+    retrievedContext: contextResult.value,
+    conversationHistory: [
+      {
+        role: 'user',
+        content: 'Hello',
+        timestamp: Date.now() - 60000,
+      },
+      {
+        role: 'assistant',
+        content: 'Hi! How can I help you today?',
+        timestamp: Date.now() - 30000,
+      },
+    ],
+  });
+
+  const promptTokens = estimatePromptTokens(prompt);
+  console.log('  ✅ Prompt built successfully');
+  console.log(`     Total length: ${prompt.length} chars`);
+  console.log(`     Estimated tokens: ${promptTokens}`);
+  console.log(`     Preview:\n`);
+  console.log(
+    prompt
+      .substring(0, 300)
+      .split('\n')
+      .map((l) => `     ${l}`)
+      .join('\n')
+  );
+  console.log('     ...\n');
+
+  // Test 3: Memory extraction prompt
+  console.log('  Test 3: Memory extraction prompt');
+  const extractionPrompt = buildMemoryExtractionPrompt(
+    'I prefer TypeScript over JavaScript',
+    "Got it! I'll remember that you prefer TypeScript."
+  );
+  console.log('  ✅ Extraction prompt built');
+  console.log(`     Length: ${extractionPrompt.length} chars`);
+
+  // Test 4: Test with Gemini (actual generation)
+  console.log('\n  Test 4: Generate response with context');
+  const response = await generateText(prompt);
+  if (response.ok) {
+    console.log('  ✅ Gemini response:');
+    console.log(`     "${response.value.substring(0, 150)}..."`);
+  } else {
+    console.log('  ❌ Generation failed:', response.error.message);
+  }
+}
+
 async function showDatabaseState() {
   console.log('\n=== DATABASE STATE ===');
 
@@ -317,6 +401,7 @@ async function main() {
     await testChunking();
     await testSummarySaving();
     await testRetrieval();
+    await testPromptConstruction();
     await showDatabaseState();
 
     console.log('\n✅ All tests complete!');
