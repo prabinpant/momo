@@ -88,7 +88,7 @@ export async function saveMemory(
     const isDuplicateResult = await isDuplicateMemory(
       candidate.content,
       embeddingResult.value,
-      0.90
+      0.9
     );
 
     if (isDuplicateResult.ok && isDuplicateResult.value) {

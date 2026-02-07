@@ -265,7 +265,7 @@ async function extractMemories(
     // Save extracted memories (with deduplication)
     let savedCount = 0;
     let duplicateCount = 0;
-    
+
     for (const memory of filtered) {
       const saveResult = await saveMemory(memory);
       if (!saveResult.ok) {
@@ -288,7 +288,7 @@ async function extractMemories(
         `⏭️  [MEMORY] Skipped ${duplicateCount} duplicate(s), saved ${savedCount} new`
       );
     }
-    
+
     logger.debug('Memories processed', {
       extracted: memories.length,
       filtered: filtered.length,
